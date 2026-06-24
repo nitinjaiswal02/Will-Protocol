@@ -72,4 +72,30 @@ contract WillProtocol {
 
         emit WillCancelled(msg.sender, refundAmount);
     }
+
+    // Adding claim(address owner) and the Claimed event.
+
+    event Claimed(address indexed owner, address indexed nominee, uint256 amount);
+
+    function claim(address owner) external {
+        Will storage will = wills[owner];
+
+        require(will.exists, "No will exists for this address");
+        require(msg.sender == will.nominee, "Only the nominee can claim");
+        require(
+            block.timestamp >= will.lastActive + will.inactivityPeriod,
+            "Owner is still within the active period"
+        );
+
+        uint256 claimAmount = will.amount;
+
+        // Effects: delete before the external call
+        delete wills[owner];
+
+        // Interaction: send funds last
+        (bool success, ) = msg.sender.call{value: claimAmount}("");
+        require(success, "Claim transfer failed");
+
+        emit Claimed(owner, msg.sender, claimAmount);
+    }
 }

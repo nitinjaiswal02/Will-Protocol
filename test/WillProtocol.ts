@@ -137,3 +137,83 @@ describe("WillProtocol - ping / cancelWill / updateNominee", function () {
     );
   });
 });
+
+
+describe("WillProtocol - claim", function () {
+  async function deployWithWillFixture() {
+    const willProtocol = await ethers.deployContract("WillProtocol");
+    const [owner, nominee, stranger] = await ethers.getSigners();
+    await willProtocol.createWill(nominee.address, ONE_WEEK, {
+      value: ethers.parseEther("1.0"),
+    });
+    return { willProtocol, owner, nominee, stranger };
+  }
+
+  it("allows the nominee to claim after the inactivity period has passed", async function () {
+    const { willProtocol, owner, nominee } = await networkHelpers.loadFixture(deployWithWillFixture);
+    await networkHelpers.time.increase(ONE_WEEK + 1);
+
+    const balanceBefore = await ethers.provider.getBalance(nominee.address);
+    const tx = await willProtocol.connect(nominee).claim(owner.address);
+    const receipt = await tx.wait();
+    const gasCost = receipt!.gasUsed * receipt!.gasPrice;
+    const balanceAfter = await ethers.provider.getBalance(nominee.address);
+
+    expect(balanceAfter).to.equal(balanceBefore + ethers.parseEther("1.0") - gasCost);
+
+    const will = await willProtocol.wills(owner.address);
+    expect(will.exists).to.equal(false);
+  });
+
+  it("emits Claimed with correct args", async function () {
+    const { willProtocol, owner, nominee } = await networkHelpers.loadFixture(deployWithWillFixture);
+    await networkHelpers.time.increase(ONE_WEEK + 1);
+
+    await expect(willProtocol.connect(nominee).claim(owner.address))
+      .to.emit(willProtocol, "Claimed")
+      .withArgs(owner.address, nominee.address, ethers.parseEther("1.0"));
+  });
+
+  it("reverts if the inactivity period has not passed", async function () {
+    const { willProtocol, owner, nominee } = await networkHelpers.loadFixture(deployWithWillFixture);
+    await expect(willProtocol.connect(nominee).claim(owner.address)).to.be.revertedWith(
+      "Owner is still within the active period",
+    );
+  });
+
+  it("reverts if called by someone other than the nominee", async function () {
+    const { willProtocol, owner, stranger } = await networkHelpers.loadFixture(deployWithWillFixture);
+    await networkHelpers.time.increase(ONE_WEEK + 1);
+    await expect(willProtocol.connect(stranger).claim(owner.address)).to.be.revertedWith(
+      "Only the nominee can claim",
+    );
+  });
+
+  it("reverts if no will exists for the given owner", async function () {
+    const { willProtocol, nominee, stranger } = await networkHelpers.loadFixture(deployWithWillFixture);
+    await expect(willProtocol.connect(nominee).claim(stranger.address)).to.be.revertedWith(
+      "No will exists for this address",
+    );
+  });
+
+  it("reverts if the owner pinged before the deadline", async function () {
+    const { willProtocol, owner, nominee } = await networkHelpers.loadFixture(deployWithWillFixture);
+    await networkHelpers.time.increase(ONE_WEEK - 100);
+    await willProtocol.ping();
+    await networkHelpers.time.increase(200);
+
+    await expect(willProtocol.connect(nominee).claim(owner.address)).to.be.revertedWith(
+      "Owner is still within the active period",
+    );
+  });
+
+  it("reverts on a second claim attempt after the will is deleted", async function () {
+    const { willProtocol, owner, nominee } = await networkHelpers.loadFixture(deployWithWillFixture);
+    await networkHelpers.time.increase(ONE_WEEK + 1);
+    await willProtocol.connect(nominee).claim(owner.address);
+
+    await expect(willProtocol.connect(nominee).claim(owner.address)).to.be.revertedWith(
+      "No will exists for this address",
+    );
+  });
+});
