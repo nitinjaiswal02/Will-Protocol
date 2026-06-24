@@ -71,3 +71,69 @@ describe("WillProtocol - createWill", function () {
     ).to.be.revertedWith("Will already exists for this address");
   });
 });
+
+
+
+describe("WillProtocol - ping / cancelWill / updateNominee", function () {
+  async function deployWithWillFixture() {
+    const willProtocol = await ethers.deployContract("WillProtocol");
+    const [owner, nominee, stranger, newNominee] = await ethers.getSigners();
+    await willProtocol.createWill(nominee.address, ONE_WEEK, {
+      value: ethers.parseEther("1.0"),
+    });
+    return { willProtocol, owner, nominee, stranger, newNominee };
+  }
+
+  it("ping updates lastActive and emits Pinged", async function () {
+    const { willProtocol, owner } = await networkHelpers.loadFixture(deployWithWillFixture);
+    const before = (await willProtocol.wills(owner.address)).lastActive;
+
+    await networkHelpers.time.increase(60);
+    await expect(willProtocol.ping()).to.emit(willProtocol, "Pinged");
+
+    const after = (await willProtocol.wills(owner.address)).lastActive;
+    expect(after).to.be.greaterThan(before);
+  });
+
+  it("ping reverts if no will exists", async function () {
+    const { willProtocol, stranger } = await networkHelpers.loadFixture(deployWithWillFixture);
+    await expect(willProtocol.connect(stranger).ping()).to.be.revertedWith(
+      "No will exists for this address",
+    );
+  });
+
+  it("updateNominee changes the nominee and emits NomineeUpdated", async function () {
+    const { willProtocol, newNominee } = await networkHelpers.loadFixture(deployWithWillFixture);
+
+    await expect(willProtocol.updateNominee(newNominee.address))
+      .to.emit(willProtocol, "NomineeUpdated")
+      .withArgs(await willProtocol.runner?.getAddress?.(), newNominee.address);
+
+    const will = await willProtocol.wills(await willProtocol.runner!.getAddress!());
+    expect(will.nominee).to.equal(newNominee.address);
+  });
+
+  it("cancelWill refunds the deposit and deletes the will", async function () {
+  const { willProtocol, owner } = await networkHelpers.loadFixture(deployWithWillFixture);
+
+  const balanceBefore = await ethers.provider.getBalance(owner.address);
+
+  const tx = await willProtocol.cancelWill();
+  const receipt = await tx.wait();
+  const gasCost = receipt!.gasUsed * receipt!.gasPrice;
+
+  const balanceAfter = await ethers.provider.getBalance(owner.address);
+
+  expect(balanceAfter).to.equal(balanceBefore + ethers.parseEther("1.0") - gasCost);
+
+  const will = await willProtocol.wills(owner.address);
+  expect(will.exists).to.equal(false);
+});
+
+  it("cancelWill reverts if no will exists", async function () {
+    const { willProtocol, stranger } = await networkHelpers.loadFixture(deployWithWillFixture);
+    await expect(willProtocol.connect(stranger).cancelWill()).to.be.revertedWith(
+      "No will exists for this address",
+    );
+  });
+});
