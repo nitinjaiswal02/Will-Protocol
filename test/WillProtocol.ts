@@ -31,7 +31,7 @@ describe("WillProtocol - createWill", function () {
     const { willProtocol, nominee } = await networkHelpers.loadFixture(deployFixture);
     await expect(
       willProtocol.createWill(nominee.address, ONE_WEEK, { value: 0 }),
-    ).to.be.revertedWith("Deposit must be greater than zero");
+    ).to.be.revertedWithCustomError(willProtocol, "InsufficientDeposit");
   });
 
   it("reverts if nominee is the zero address", async function () {
@@ -40,7 +40,7 @@ describe("WillProtocol - createWill", function () {
       willProtocol.createWill(ethers.ZeroAddress, ONE_WEEK, {
         value: ethers.parseEther("1.0"),
       }),
-    ).to.be.revertedWith("Nominee cannot be the zero address");
+    ).to.be.revertedWithCustomError(willProtocol, "InvalidNominee");
   });
 
   it("reverts if nominee is the sender", async function () {
@@ -49,14 +49,14 @@ describe("WillProtocol - createWill", function () {
       willProtocol.createWill(owner.address, ONE_WEEK, {
         value: ethers.parseEther("1.0"),
       }),
-    ).to.be.revertedWith("You cannot be your own nominee");
+    ).to.be.revertedWithCustomError(willProtocol, "InvalidNominee");
   });
 
   it("reverts if inactivity period is too short", async function () {
     const { willProtocol, nominee } = await networkHelpers.loadFixture(deployFixture);
     await expect(
       willProtocol.createWill(nominee.address, 60, { value: ethers.parseEther("1.0") }),
-    ).to.be.revertedWith("Inactivity period too short");
+    ).to.be.revertedWithCustomError(willProtocol, "InactivityPeriodTooShort");
   });
 
   it("reverts if a will already exists for the sender", async function () {
@@ -68,7 +68,7 @@ describe("WillProtocol - createWill", function () {
       willProtocol.createWill(nominee.address, ONE_WEEK, {
         value: ethers.parseEther("1.0"),
       }),
-    ).to.be.revertedWith("Will already exists for this address");
+    ).to.be.revertedWithCustomError(willProtocol, "WillAlreadyExists");
   });
 });
 
@@ -97,9 +97,7 @@ describe("WillProtocol - ping / cancelWill / updateNominee", function () {
 
   it("ping reverts if no will exists", async function () {
     const { willProtocol, stranger } = await networkHelpers.loadFixture(deployWithWillFixture);
-    await expect(willProtocol.connect(stranger).ping()).to.be.revertedWith(
-      "No will exists for this address",
-    );
+    await expect(willProtocol.connect(stranger).ping()).to.be.revertedWithCustomError(willProtocol, "WillDoesNotExist");
   });
 
   it("updateNominee changes the nominee and emits NomineeUpdated", async function () {
@@ -132,9 +130,7 @@ describe("WillProtocol - ping / cancelWill / updateNominee", function () {
 
   it("cancelWill reverts if no will exists", async function () {
     const { willProtocol, stranger } = await networkHelpers.loadFixture(deployWithWillFixture);
-    await expect(willProtocol.connect(stranger).cancelWill()).to.be.revertedWith(
-      "No will exists for this address",
-    );
+    await expect(willProtocol.connect(stranger).cancelWill()).to.be.revertedWithCustomError(willProtocol, "WillDoesNotExist");
   });
 });
 
@@ -176,24 +172,18 @@ describe("WillProtocol - claim", function () {
 
   it("reverts if the inactivity period has not passed", async function () {
     const { willProtocol, owner, nominee } = await networkHelpers.loadFixture(deployWithWillFixture);
-    await expect(willProtocol.connect(nominee).claim(owner.address)).to.be.revertedWith(
-      "Owner is still within the active period",
-    );
+    await expect(willProtocol.connect(nominee).claim(owner.address)).to.be.revertedWithCustomError(willProtocol, "StillActive");
   });
 
   it("reverts if called by someone other than the nominee", async function () {
     const { willProtocol, owner, stranger } = await networkHelpers.loadFixture(deployWithWillFixture);
     await networkHelpers.time.increase(ONE_WEEK + 1);
-    await expect(willProtocol.connect(stranger).claim(owner.address)).to.be.revertedWith(
-      "Only the nominee can claim",
-    );
+    await expect(willProtocol.connect(stranger).claim(owner.address)).to.be.revertedWithCustomError(willProtocol, "NotNominee");
   });
 
   it("reverts if no will exists for the given owner", async function () {
     const { willProtocol, nominee, stranger } = await networkHelpers.loadFixture(deployWithWillFixture);
-    await expect(willProtocol.connect(nominee).claim(stranger.address)).to.be.revertedWith(
-      "No will exists for this address",
-    );
+    await expect(willProtocol.connect(nominee).claim(stranger.address)).to.be.revertedWithCustomError(willProtocol, "WillDoesNotExist");
   });
 
   it("reverts if the owner pinged before the deadline", async function () {
@@ -202,9 +192,7 @@ describe("WillProtocol - claim", function () {
     await willProtocol.ping();
     await networkHelpers.time.increase(200);
 
-    await expect(willProtocol.connect(nominee).claim(owner.address)).to.be.revertedWith(
-      "Owner is still within the active period",
-    );
+    await expect(willProtocol.connect(nominee).claim(owner.address)).to.be.revertedWithCustomError(willProtocol, "StillActive");
   });
 
   it("reverts on a second claim attempt after the will is deleted", async function () {
@@ -212,8 +200,6 @@ describe("WillProtocol - claim", function () {
     await networkHelpers.time.increase(ONE_WEEK + 1);
     await willProtocol.connect(nominee).claim(owner.address);
 
-    await expect(willProtocol.connect(nominee).claim(owner.address)).to.be.revertedWith(
-      "No will exists for this address",
-    );
+    await expect(willProtocol.connect(nominee).claim(owner.address)).to.be.revertedWithCustomError(willProtocol, "WillDoesNotExist");
   });
 });
